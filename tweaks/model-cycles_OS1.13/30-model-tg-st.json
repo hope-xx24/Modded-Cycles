@@ -816,6 +816,10 @@
   "mq_toggle": "0x401b7978",
   "mq_pending": "0x401b7a68",
   "mq_apply": "0x401b79fe",
-  "voice_quiet": "0x401adae0"
+  "voice_quiet": "0x401adae0",
+  "set_held": "0x401b235c",
+  "mod_used": "0x401b2360",
+  "show_popup": "0x401b2284",
+  "gm_enc_gate": "0x401b0d18"
  }
 }

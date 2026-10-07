@@ -142,7 +142,9 @@ ST_SYMBOLS = ("blob_start", "reserved_end", "REGION_END", "param_table", "boot_e
               "descr_hook", "descr_b_hook", "sampler_lfo_gate", "sampler_amp_gate", "sampler_name_table",
               "apply_names", "mod_held", "prof_t0", "prof_ta", "prof_trk", "rs_state", "rs_src", "sle_run", "sle_trk",
               "ah_noenv", "voice_ptr", "SLD_BASE", "sld_init", "blk_clk", "mq_toggle", "mq_pending", "mq_apply",
-              "voice_quiet")
+              "voice_quiet",
+              # pour tools/gen_fx.py (notes/44) : la touche Settings tenue et son accord, le popup, le passage des encodeurs
+              "set_held", "mod_used", "show_popup", "gm_enc_gate")
 
 
 def export(cycles, repo, patches=()):
