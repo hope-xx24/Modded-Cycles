@@ -7,8 +7,9 @@
 /* 0x40057488 (8 o) : jmp fx_delay_entry ; nop, à la place de lea -48(sp),sp ; movem.l d2-d7/a2-a6,(sp), le début du
  * delay de l'OS. 4(sp) = sortie, 8(sp) = entrée, 12(sp) = paramètres. fx_latch (C) lit le choix du pattern et rend
  * l'algorithme du delay ; d0-d1/a0-a1 sont libres ici (le delay les charge avant de les lire). Original : les deux
- * instructions remplacées, puis la suite du delay. Sinon notre delay, avec les mêmes arguments ; il revient chez
- * l'appelant, accumulateurs vides comme le delay de l'OS. */
+ * instructions remplacées, puis la suite du delay. Sinon notre delay, avec les mêmes arguments, en mode
+ * fractionnaire saturé et acc0 vide (le seul qu'il utilise) ; il revient chez l'appelant, accumulateurs vides comme
+ * le delay de l'OS. */
 fx_delay_entry:
 	jsr	fx_latch
 	tst.l	%d0
@@ -17,6 +18,7 @@ fx_delay_entry:
 	movem.l	%d2-%d7/%a2-%a6, (%sp)
 	jmp	0x40057490
 1:	move.l	#0xa0, %macsr
+	movclr.l %acc0, %d0
 	jmp	fx_tape
 
 /* 0x400579c4 (8 o) : jmp fx_reverb_entry ; nop, à la place de lea -52(sp),sp ; movem.l d2-d7/a2-a6,(sp), le début de
@@ -28,6 +30,7 @@ fx_reverb_entry:
 	movem.l	%d2-%d7/%a2-%a6, (%sp)
 	jmp	0x400579cc
 1:	move.l	#0xa0, %macsr
+	movclr.l %acc0, %d0
 	jmp	fx_plate
 
 /* 0x400081ce (6 o) : jsr fx_enc_hook à la place de jsr gm_enc_gate (Model-TG, lui-même à la place de

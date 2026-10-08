@@ -10,12 +10,13 @@
  * fx_hooks.S détourne l'entrée de ces deux fonctions : avec l'algorithme 0 (« Original »), le code de l'OS continue,
  * inchangé ; sinon l'un des algorithmes ci-dessous prend sa place, avec les mêmes arguments :
  *   - delay 1, « Tape » : écho à bande. Tête de lecture interpolée, pleurage et scintillement, saturation à
- *     l'enregistrement, passe-bas et passe-haut dans la boucle (chaque répétition plus sombre et plus mince), temps
- *     qui glisse quand on le change. Mémoire en 16 bits, 2,7 s au plus.
+ *     l'enregistrement (la loi et le gain du delay d'origine : même niveau, même course de Fdbk), passe-bas à 2,5 kHz
+ *     et passe-haut à 130 Hz dans la boucle (chaque répétition plus sombre et plus mince), temps qui glisse quand
+ *     on le change. La bande tourne à 24 kHz, en 16 bits : 5,4 s au plus.
  *   - reverb 1, « Plate » : la reverb des modules d'Émilie Gillet (clouds/dsp/fx/reverb.h de pichenettes/eurorack,
  *     licence MIT : topologie de Griesinger, 4 passe-tout en entrée puis une boucle de 2 x (2 passe-tout + 1 retard),
  *     modulée), réécrite en virgule fixe (le ColdFire n'a pas de FPU) et calculée à 24 kHz, retards mis à l'échelle
- *     (x 0,75 depuis ses 32 kHz).
+ *     (x 0,75 depuis ses 32 kHz). Size règle le gain et la diffusion de la boucle, Tone son passe-bas.
  *
  * Choix : un octet par effet dans le pattern (octet +512 de la piste 0 pour le delay, de la piste 1 pour la reverb,
  * bits 5-7 ; inutilisé par l'OS, recopié tel quel à l'enregistrement, notes/32 §4 ; l'arpégiateur en prend les bits
@@ -86,25 +87,26 @@ static inline s32 qmul(s32 a, s32 b)
 /* ------------------------------------------------------------------------------------------------------------ */
 /* Tape                                                                                                         */
 /* ------------------------------------------------------------------------------------------------------------ */
+/* La bande tourne à 24 kHz (son passe-bas de lecture est à 2,5 kHz) : moitié moins de calcul, 5,4 s de mémoire. */
 #define RING_BITS  17
-#define RING       (1u << RING_BITS)                 /* 131 072 trames : 2,73 s */
+#define RING       (1u << RING_BITS)                 /* 131 072 trames à 24 kHz : 5,46 s */
 #define RMASK      (RING - 1)
-#define D_MIN      64                                /* retard mini, en trames */
-#define D_MAX      (RING - 2048)
-#define GLIDE_MAX  (24 << 8)                         /* glissement du temps : 24 trames par bloc au plus (Q8) */
-#define A_LP       908000000                         /* passe-bas de lecture, ~4,2 kHz */
-#define A_HP       27900000                          /* passe-haut, ~100 Hz */
+#define D_MIN      32                                /* retard mini, en trames de la bande */
+#define D_MAX      (RING - 1024)                     /* maxi : 5,42 s (le delay d'origine : 8 s) */
+#define GLIDE_MAX  (12 << 8)                         /* glissement du temps : 12 trames par bloc au plus (Q8) */
+#define A_LP       1031400000                        /* passe-bas de lecture, 2,5 kHz (delay d'origine : 1,44 kHz) */
+#define A_HP       71856000                          /* passe-haut, 130 Hz (delay d'origine : 15,5 Hz) */
 #define K_WOW      5396970                           /* pleurage, 0,6 Hz (2 pi f / 1500, Q31) */
 #define K_FLUT     51271000                          /* scintillement, 5,7 Hz */
-#define DEPTH_WOW  (2 * (18 << 8))                   /* +-18 trames */
-#define DEPTH_FLUT (2 * 150)                         /* +-0,6 trame */
-#define C_16_27    1272582903                        /* 16/27 */
+#define DEPTH_WOW  (2 * (9 << 8))                    /* +-9 trames (0,4 ms) */
+#define DEPTH_FLUT (2 * 75)                          /* +-0,3 trame */
 
 struct tape {
 	u32 w, valid;                                    /* tête d'écriture ; trames écrites depuis la remise à zéro */
 	s32 dcur, dmod;                                  /* retard (Q8, trames), lissé ; le même modulé, fin du bloc précédent */
 	s32 wx, wy, fx, fy;                              /* deux oscillateurs (Q31, amplitude 1/2) */
 	s32 lp[2], hp[2];
+	s32 dec[2], up[2];                               /* 48 -> 24 kHz : l'échantillon précédent ; 24 -> 48 : la sortie précédente */
 };
 
 /* ------------------------------------------------------------------------------------------------------------ */
@@ -168,9 +170,9 @@ struct fx st __attribute__((section(".data.st"))) = { 0 };
 static s16 ring[RING * 2];
 static s32 pbuf[PBUF];
 
-static inline s32 sat_shl7(s32 x)
+static inline s32 sat_shl8(s32 x)
 {
-	return x > 0x00ffffff ? 0x7fffffff : x < -0x01000000 ? (s32)0x80000000 : (s32)((u32)x << 7);
+	return x > 0x007fffff ? 0x7fffffff : x < -0x00800000 ? (s32)0x80000000 : (s32)((u32)x << 8);
 }
 
 static inline s32 sat_shl1(s32 x)
@@ -178,15 +180,33 @@ static inline s32 sat_shl1(s32 x)
 	return x > 0x3fffffff ? 0x7fffffff : x < -0x40000000 ? (s32)0x80000000 : (s32)((u32)x << 1);
 }
 
+/* Les effets d'origine ne tournent pas pendant que les nôtres les remplacent, mais leurs transferts DMA continuent :
+ * leur mémoire est vidée bloc après bloc (fx_tape, fx_plate), et leurs filtres sont remis ici comme les laisse
+ * l'initialisation de l'OS (0x40057260 pour le delay, 0x4005770e pour la reverb), pour qu'ils repartent du silence. */
+#ifdef FX_HOST
+#define stock_zero(a, n) ((void)0)
+#else
+static void stock_zero(u32 addr, int longs)
+{
+	u32 *p = (u32 *)addr;
+
+	while (longs--)
+		*p++ = 0;
+}
+#endif
+
 static void tape_reset(void)
 {
 	struct tape *t = &st.tape;
+
+	stock_zero(0x8000b8dc, 4);                       /* delay d'origine : ses deux filtres */
 
 	t->w = t->valid = 0;
 	t->dcur = t->dmod = 0;
 	t->wx = t->fx = 0x40000000;
 	t->wy = t->fy = 0;
 	t->lp[0] = t->lp[1] = t->hp[0] = t->hp[1] = 0;
+	t->dec[0] = t->dec[1] = t->up[0] = t->up[1] = 0;
 }
 
 static void plate_reset(void)
@@ -203,6 +223,9 @@ static void plate_reset(void)
 	for (i = 0; i < 3; i++)
 		p->up[0][i] = p->up[1][i] = 0;
 	p->flush = 560;                                  /* un tour de ses lignes les plus longues (512 blocs) */
+	stock_zero(0x8000a4c8, 2);                       /* reverb d'origine : ses filtres et ses états */
+	stock_zero(0x8000a47c, 16);
+	stock_zero(0x8000a1d0, 128);
 }
 
 /* Début de bloc (fx_hooks.S, à l'entrée du delay) : les algorithmes que demande le pattern joué. Rend celui du delay. */
@@ -237,24 +260,24 @@ void fx_tape(s32 *out, const s32 *in, const s16 *prm)
 {
 	struct tape *t = &st.tape;
 	s32 time = prm[0], fbk = prm[1], tempo = TEMPO;
-	s32 d, target, diff, step, dq, inc, fb;
+	s32 d, target, diff, step, dq, inc, fb, full;
 	u32 w = t->w, *stage = DLY_STAGE;
 	int n, c;
 
 	for (n = 0; n < 64; n++)                         /* le delay d'origine ne tourne pas : sa mémoire se vide */
 		stage[n] = 0;
 
-	/* temps : celui du delay d'origine (0x4005819a), en trames */
+	/* temps : celui du delay d'origine (0x4005819a), en trames à 48 kHz */
 	if (tempo < 1)
 		tempo = 14400;
 	if (time < 0)
 		time = 0;
 	d = ((((time + 256) * 48000) >> 10) * 900) / tempo;
-	if (d < D_MIN)
-		d = D_MIN;
-	if (d > (s32)D_MAX)
-		d = D_MAX;
-	target = d << 8;
+	if (d < 2 * D_MIN)
+		d = 2 * D_MIN;
+	if (d > (s32)(2 * D_MAX))
+		d = 2 * D_MAX;
+	target = d << 7;                                 /* Q8, en trames de la bande (24 kHz) */
 	if (!t->valid) {                                 /* 1er bloc : pas de glissement */
 		t->dcur = target;
 		t->dmod = target;
@@ -278,54 +301,64 @@ void fx_tape(s32 *out, const s32 *in, const s16 *prm)
 	target = t->dcur + qmul(t->wx, DEPTH_WOW) + qmul(t->fx, DEPTH_FLUT);
 	if (target < (D_MIN << 7))
 		target = D_MIN << 7;
-	inc = (target - dq) >> 5;
-	t->dmod = dq + 32 * inc;
+	inc = (target - dq) >> 4;
+	t->dmod = dq + 16 * inc;
 
-	/* réinjection : 127 -> 1,03 (au-delà de 1 : l'écho s'emballe, la saturation le tient) */
+	/* réinjection : Fdbk / 127 x 0,9. Avec le gain 2 de la saturation, l'écho s'emballe au-delà de 78 environ,
+	 * comme le delay d'origine, et la saturation le tient. */
 	if (fbk < 0)
 		fbk = 0;
 	if (fbk > 32512)
 		fbk = 32512;
-	fb = fbk * 66052;
+	fb = fbk * 59447;
 
-	for (n = 0; n < 32; n++, dq += inc) {
-		u32 i1 = (w - (u32)(dq >> 8)) & RMASK, i0 = (i1 - 1) & RMASK;
-		s32 g = 256 - (dq & 255);
-		int mute = (u32)(dq >> 8) + 1 > t->valid + n;    /* pas encore écrit depuis la remise à zéro */
+	full = t->valid >= RING;
+	for (c = 0; c < 2; c++) {                        /* un canal après l'autre : ses filtres restent en registres */
+		const s32 *ip = in + c;
+		s32 *op = out + c, lp = t->lp[c], hp = t->hp[c], z = t->dec[c], up = t->up[c], dc = dq;
+		s16 *rp = ring + c;
+		u32 wc = w, lim = t->valid;
 
-		for (c = 0; c < 2; c++) {
-			s32 a = ring[2 * i0 + c], b = ring[2 * i1 + c];
-			s32 x = mute ? 0 : (s32)((u32)((a << 8) + (b - a) * g) << 7);   /* tête de lecture, demi-échelle */
-			s32 y, f, h, h3;
+		for (n = 0; n < 16; n++, dc += inc, ip += 4, op += 4, lim++) {
+			u32 di = (u32)dc >> 8, i1 = (wc - di) & RMASK, i0 = (i1 - 1) & RMASK;
+			s32 a = rp[2 * i0], b = rp[2 * i1], x, y, f, h;
 
-			t->lp[c] += qmul(x - t->lp[c], A_LP);
-			t->hp[c] += qmul(t->lp[c] - t->hp[c], A_HP);
-			y = t->lp[c] - t->hp[c];
-			out[2 * n + c] = sat_shl1(y);
+			/* tête de lecture, demi-échelle ; rien avant d'avoir écrit (depuis la remise à zéro) */
+			x = !full && di + 1 > lim ? 0 : (s32)((u32)((a << 8) + (b - a) * (256 - (dc & 255))) << 7);
+			lp += qmul(x - lp, A_LP);
+			hp += qmul(lp - hp, A_HP);
+			y = lp - hp;
+			/* 24 -> 48 kHz : interpolation linéaire (le passe-bas de lecture est à 2,5 kHz) */
+			op[0] = sat_shl1((up >> 1) + (y >> 1));
+			op[2] = sat_shl1(y);
+			up = y;
 			f = qmul(y, fb);
-			f += f >> 5;
 			if (f > 0x3fffffff)
 				f = 0x3fffffff;
 			if (f < -0x3fffffff)
 				f = -0x3fffffff;
-			h = (in[2 * n + c] >> 1) + f;            /* (entrée + réinjection) / 2 */
-			/* saturation de la bande : y = v - 4/27 v^3 jusqu'à |v| = 1,5, puis +-1 ; ici v / 2 -> y / 2 */
-			if (h >= 0x60000000)
+			/* 48 -> 24 kHz : (1 2 1) / 4, puis v / 2, v = entrée + réinjection */
+			h = (z >> 3) + (ip[0] >> 2) + (ip[2] >> 3) + f;
+			z = ip[2];
+			/* saturation à l'enregistrement, celle du delay d'origine : 2 v - v |v| jusqu'à |v| = 1, puis +-1
+			 * (gain 2 aux petits niveaux : l'écho sort au niveau du delay d'origine, et Fdbk agit pareil) */
+			if (h > 0x40000000)
 				h = 0x40000000;
-			else if (h <= -0x60000000)
+			if (h < -0x40000000)
 				h = -0x40000000;
-			else {
-				h3 = qmul(qmul(h, h), h);
-				h -= qmul(h3, C_16_27);
-			}
-			h >>= 15;
-			ring[2 * w + c] = h > 32767 ? 32767 : h;
+			h -= qmul(h, h < 0 ? -h : h);
+			h = (h + (1 << 13)) >> 14;                /* 16 bits, arrondi : au silence la bande revient à zéro */
+			rp[2 * wc] = h > 32767 ? 32767 : h;
+			wc = (wc + 1) & RMASK;
 		}
-		w = (w + 1) & RMASK;
+		t->lp[c] = lp;
+		t->hp[c] = hp;
+		t->dec[c] = z;
+		t->up[c] = up;
 	}
-	t->w = w;
+	t->w = (w + 16) & RMASK;
 	if (t->valid < RING)
-		t->valid += 32;
+		t->valid += 16;
 }
 
 /* ---- Plate : (out, in, params) ---- */
@@ -363,7 +396,7 @@ void fx_plate(s32 *out, const s32 *in, const s16 *prm)
 {
 	struct plate *p = &st.plate;
 	s32 size = (s8)(prm[0] >> 8), tone = prm[1] >> 8;
-	s32 krt, klp, lp1 = p->lp1, lp2 = p->lp2, off1, off2;
+	s32 krt, kd, klp, lp1 = p->lp1, lp2 = p->lp2, off1, off2;
 	s32 m[38];
 	u32 wp = p->wp;
 	int n, k;
@@ -389,15 +422,20 @@ void fx_plate(s32 *out, const s32 *in, const s16 *prm)
 			out[n] = 0;
 		return;
 	}
-	/* Size 0..127 -> temps 0,15..0,98 (Clouds : 0,35..0,98) ; Tone 0..127 -> passe-bas 0,25..0,97 */
+	/* Size 0..127 -> gain de la boucle 0..0,97 (Clouds : 0,35..0,98) et diffusion de la boucle 0,35..0,7 (Clouds :
+	 * 0,7), réglés sur la décroissance de la reverb d'origine (notes/44 §5 : 130 dB/s à 0, 48 à 42, 29 à 64, 14 à
+	 * 100, 3 à 127) ; Tone 0..127 -> passe-bas de la boucle 0,06..0,6 (à 64)..0,97 (Clouds : 0,6..0,97) */
 	if (size < 0)
 		size = 0;
 	if (tone < 0)
 		tone = 0;
 	if (tone > 127)
 		tone = 127;
-	krt = 322122547 + size * 14034735;
-	klp = 536870912 + tone * 12174711;
+	krt = size <= 100 ? size * 16106127 : 1610612736 + (size - 100) * 17394617;
+	kd = 751619277 + size * 9663676;
+	if (kd > KAP)
+		kd = KAP;
+	klp = tone <= 64 ? 128849019 + tone * 18253611 : 1297080123 + (tone - 64) * 12455405;
 
 	/* 48 -> 24 kHz : (G + D) / 8 en Q27, filtre demi-bande (-1 0 9 16 9 0 -1) / 32 puis x 4 */
 	for (n = 0; n < 6; n++)
@@ -430,21 +468,22 @@ void fx_plate(s32 *out, const s32 *in, const s16 *prm)
 		acc += qmul(interp(wp, B_DEL2, off2), krt);
 		lp1 += qmul(acc - lp1, klp);
 		acc = lp1;
-		AP(B_DAP1A, L_DAP1A, -KAP);
-		AP(B_DAP1B, L_DAP1B, KAP);
+		AP(B_DAP1A, L_DAP1A, -kd);
+		AP(B_DAP1B, L_DAP1B, kd);
 		acc = pclip(acc);
 		RD(B_DEL1) = acc;
 		wl = acc;                                    /* le « wet » de Clouds vaut 2 x 8 x cette valeur */
 		acc = apout + qmul(RD(B_DEL1 + L_DEL1 - 1), krt);
 		lp2 += qmul(acc - lp2, klp);
 		acc = lp2;
-		AP(B_DAP2A, L_DAP2A, KAP);
-		AP(B_DAP2B, L_DAP2B, -KAP);
+		AP(B_DAP2A, L_DAP2A, kd);
+		AP(B_DAP2B, L_DAP2B, -kd);
 		acc = pclip(acc);
 		RD(B_DEL2) = acc;
 		wr = acc;
 
-		/* 24 -> 48 kHz (demi-bande, 2 échantillons de retard) ; sortie = wet / 2 = 8 x valeur, de Q27 à Q31 : << 7 */
+		/* 24 -> 48 kHz (demi-bande, 2 échantillons de retard) ; sortie = wet de Clouds = 16 x valeur, de Q27 à Q31 :
+		 * << 8 (le niveau de la reverb d'origine sous le même bruit, à 1 dB près, notes/44 §5) */
 		for (n = 0; n < 2; n++) {
 			s32 *h = p->up[n], v = n ? wr : wl, e, o;
 
@@ -453,8 +492,8 @@ void fx_plate(s32 *out, const s32 *in, const s16 *prm)
 			h[0] = h[1];
 			h[1] = h[2];
 			h[2] = v;
-			out[4 * k + n] = sat_shl7(e);
-			out[4 * k + 2 + n] = sat_shl7(o);
+			out[4 * k + n] = sat_shl8(e);
+			out[4 * k + 2 + n] = sat_shl8(o);
 		}
 	}
 	p->wp = wp;
@@ -476,12 +515,13 @@ static const char *const NAME_R[N_REVERB] = { "Reverb FX\nOriginal", "Reverb FX\
 /* Les données de la piste t du pattern en cours, par son objet de l'interface (comme l'arpégiateur, notes/32 §10) */
 static u8 *ui_track(u32 t, void **objp)
 {
-	void *app = ((void *(*)(void))0x400cf866)();
-	void *pat = ((void *(*)(void *))0x4000f208)(app);
-	void *obj = ((void *(*)(void *, u32))0x4000cfcc)(pat, t);
+	/* ces fonctions de l'OS rendent leur pointeur dans d0 : déclarées entières (GCC m68k-linux-gnu le lirait dans a0) */
+	u32 app = ((u32 (*)(void))0x400cf866)();
+	u32 pat = ((u32 (*)(u32))0x4000f208)(app);
+	u32 obj = ((u32 (*)(u32, u32))0x4000cfcc)(pat, t);
 
-	*objp = obj;
-	return obj ? ((u8 *(*)(void *))(*(void ***)obj)[10])(obj) : 0;
+	*objp = (void *)obj;
+	return obj ? (u8 *)((u32 (*)(u32))(*(u32 **)obj)[10])(obj) : 0;
 }
 
 /* fx_hooks.S, fx_enc_hook : Settings est tenue et le potard which (0 : DELAY SEND, 1 : REVERB SEND) a tourné.

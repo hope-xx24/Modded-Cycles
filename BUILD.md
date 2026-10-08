@@ -275,6 +275,31 @@ Incompatible avec les moteurs du Syntakt et SD VINTAGE (même mécanique, même 
 | `model-tg-st,macro-tg` | `d738fafaa86bbac86e328e6f0b70dd9688c1d9c3b05a423c957751c74abbd8d8` |
 | `6ch-usbup,model-tg-st,macro-tg,trig-hold,arp,tempo-max,boot-anim` | `f584f099bd2a26abfcccf3d954dd3b86ab1880c07a0b110bce88d569eed1daeb` |
 
+### FX : delay Tape et reverb Plate au choix, par pattern
+
+`tweaks/model-cycles_OS1.13/44-fx-tg.json` (avec Model-TG, après `model-tg-st`) et `45-fx-macro-tg.json` (avec Model-TG
+et MACRO, après `model-tg-st` et `macro-tg`) sont produits par `tools/gen_fx.py`, qui compile `tools/machines/fx/`
+(`m68k-linux-gnu-gcc` ; les JSON versionnés viennent de GCC 13.3 et des binutils 2.41, un autre compilateur donne d'autres
+octets) pour `0x46750000` et le range après l'image, derrière un crochet de démarrage qui l'y recopie
+([note 44](notes/44-effets-au-choix.md)). Settings tenue
++ DELAY SEND ou REVERB SEND choisit l'algorithme, enregistré avec le pattern ; « Original » laisse le code de l'OS
+inchangé. **Jamais essayé sur la machine** : hors du flasher web, à flasher avec une interface MIDI à portée
+([FLASH.md](FLASH.md)). La preuve fait tourner le delay et la reverb de l'OS en entier (eDMA modélisé) et compare Tape et
+Plate, échantillon par échantillon, à `fx.c` compilé pour l'ordinateur (`gcc`) :
+```sh
+python3 tools/gen_fx.py --cycles model-cycles_OS1.13.syx [--check]
+python3 tools/emu/test_fx.py --cycles model-cycles_OS1.13.syx [--with 6ch-usbup] [--no-macro] [--quick] [--only 3,8]   # ~25 min
+python3 tools/build.py -i model-cycles_OS1.13.syx -t 6ch-usbup,model-tg-st,macro-tg,fx-macro-tg
+```
+Incompatible avec les moteurs du Syntakt (même place en mémoire) et avec tout autre tweak qui ajoute une charge utile.
+
+| `-t` | MAIN OS patché (SHA-256) |
+|---|---|
+| `model-tg-st,fx-tg` | `d1f401a98f4e72050149fe531702eab41f97c22bd3f55f4a2b087af6a1bd75c4` |
+| `6ch-usbup,model-tg-st,fx-tg` | `5cedb25f35d56bb7983b9689a1f2cf7e06e6188fb873e4051f9210231ce6be15` |
+| `model-tg-st,macro-tg,fx-macro-tg` | `8bca8a435bc60cf214c0c21dd76b479bfb479efbe7584bae4d55bad062a0ab4a` |
+| `6ch-usbup,model-tg-st,macro-tg,fx-macro-tg` | `bf3fb2c29df7ce37178a6f174d6e934fc33fdec4d58dee4955373101914a1ac2` |
+
 ### Écoute d'un pas en pause
 
 `trig-preview` (et sa copie dans Model-TG) accepte le séquenceur en pause, où le met un Stop MIDI reçu même à l'arrêt : 3 octets

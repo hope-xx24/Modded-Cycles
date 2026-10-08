@@ -5,10 +5,12 @@
   - 45-fx-macro-tg.json : avec Model-TG et la machine MACRO (s'ajoute après model-tg-st et macro-tg).
 
 tools/machines/fx/ : fx.c (Tape, Plate, le choix par pattern, l'interface) et fx_hooks.S (les accroches), compilés
-et liés ici juste après l'image (la fin du tweak précédent : le code s'exécute en place, sans crochet de démarrage).
-Les deux mémoires (bande, plaque) sont en BSS à 0x46750000, dans le dernier Mo de la zone de Model-TG, après la charge
-utile de MACRO. Trois écritures sur l'OS (HOOKS) : l'entrée du delay et celle de la reverb de l'OS, et le point de
-passage des encodeurs, que Model-TG a déjà détourné (l'écriture part de SES octets : le tweak vient après lui).
+et liés ici pour 0x46750000, dans le dernier Mo de la zone de Model-TG, après la charge utile de MACRO ; les deux
+mémoires (bande, plaque) suivent, en BSS. Le code est rangé après l'image (à la fin du tweak précédent), derrière
+fx_boot.S, un crochet de démarrage exécuté sur place qui le recopie : ce qui suit l'image est remis à zéro au démarrage
+puis repris par le cache du système de fichiers (notes/31 §1), rien ne peut y rester. Quatre écritures sur l'OS : l'entrée
+du delay et celle de la reverb de l'OS, le point de passage des encodeurs, que Model-TG a déjà détourné, et l'appel du
+crochet de démarrage (ces deux-là partent des octets du tweak précédent : celui-ci vient après).
 
 La reverb Plate reprend la topologie et les réglages de clouds/dsp/fx/reverb.h (Émilie Gillet, MIT), réécrits en
 virgule fixe dans fx.c : aucun octet de son code compilé. Aucun octet Elektron.
@@ -33,17 +35,24 @@ import test_sdvintage as T         # noqa: E402
 SRC = HERE / "machines" / "fx"
 DEV = HERE.parent / "tweaks" / "model-cycles_OS1.13"
 BASE = gx.BASE
-BSS = 0x46750000                   # fin de la charge utile de MACRO avec Model-TG : 0x4674f2f0 (notes/43 §4)
-BSS_END = 0x46800000               # fin du Mo laissé par Model-TG (notes/31 §4)
+DST = 0x46750000                   # fin de la charge utile de MACRO avec Model-TG : 0x4674f2f0 (notes/43 §4)
+DST_END = 0x46800000               # fin du Mo laissé par Model-TG (notes/31 §4)
+BOOT_CALL = 0x40000530             # jsr <crochet de démarrage> : Model-TG, puis MACRO, y ont mis le leur (notes/31, 43)
 # -O2 : le coût par bloc compte (notes/44 §7) ; pas de bibliothèque : ni division 64 bits ni flottant dans fx.c
 CFLAGS = ["-mcpu=54418", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-fno-pic", "-fno-common",
           "-ffunction-sections", "-fdata-sections", "-fomit-frame-pointer", "-Wall", "-Wextra", "-Werror"]
 LINK = """SECTIONS
 {{
   .text {code:#x} : {{
-    *(.text.hooks) *(.text*) . = ALIGN(4); *(.rodata*) . = ALIGN(4); *(.data*)
+    *(.text.hooks) *(.text*) . = ALIGN(4); *(.rodata*) . = ALIGN(4); *(.data*) . = ALIGN(4);
   }}
-  .bss {bss:#x} (NOLOAD) : {{ *(.bss*) *(COMMON) }}
+  .bss ALIGN(16) (NOLOAD) : {{ *(.bss*) *(COMMON) }}
+  /DISCARD/ : {{ *(.comment) *(.note*) *(.eh_frame*) }}
+}}
+"""
+LINK_BOOT = """SECTIONS
+{{
+  .text {at:#x} : {{ *(.text*) }}
   /DISCARD/ : {{ *(.comment) *(.note*) *(.eh_frame*) }}
 }}
 """
@@ -66,15 +75,15 @@ SYMBOLS = ("fx_latch", "fx_tape", "fx_plate", "fx_ui_turn", "fx_delay_entry", "f
            "ring", "pbuf")
 
 
-def compile_fx(at, tg):
-    """Code lié à l'adresse at : (octets, symboles, fin du BSS)."""
+def compile_fx(tg):
+    """Code lié à DST : (octets, symboles, fin du BSS)."""
     defs = [f"-DTG_{n.upper()}={int(tg[n], 16):#x}" for n in TG_SYMBOLS]
     with tempfile.TemporaryDirectory() as d:
         d = pathlib.Path(d)
         obj, hooks, elf, ld, out = d / "fx.o", d / "hooks.o", d / "fx.elf", d / "fx.ld", d / "fx.bin"
         gx.run([gx.CROSS + "gcc", *CFLAGS, *defs, "-c", str(SRC / "fx.c"), "-o", str(obj)])
         gx.run([gx.CROSS + "gcc", "-mcpu=54418", *defs, "-c", str(SRC / "fx_hooks.S"), "-o", str(hooks)])
-        ld.write_text(LINK.format(code=at, bss=BSS), encoding="utf-8")
+        ld.write_text(LINK.format(code=DST), encoding="utf-8")
         gx.run([gx.CROSS + "ld", "-T", str(ld), "--no-warn-rwx-segments", "-o", str(elf), str(hooks), str(obj)])
         undef = gx.run([gx.CROSS + "nm", "-u", str(elf)]).strip()
         if undef:
@@ -89,7 +98,22 @@ def compile_fx(at, tg):
         bss_end = max(int(l.split()[0], 16) + int(l.split()[1], 16)
                       for l in gx.run([gx.CROSS + "nm", "-S", str(elf)]).splitlines()
                       if len(l.split()) == 4 and l.split()[2] in "bB")
+    if len(code) % 4:
+        raise SystemExit("!! code non aligné sur 4 o")
     return code, syms, bss_end
+
+
+def boot_stub(at, longs, prev):
+    """fx_boot.S assemblé à l'adresse at : recopie les longs mots qui le suivent vers DST, puis saute à prev."""
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        obj, elf, ld, out = d / "boot.o", d / "boot.elf", d / "boot.ld", d / "boot.bin"
+        gx.run([gx.CROSS + "gcc", "-mcpu=54418", f"-DFX_DST={DST:#x}", f"-DFX_LONGS={longs}", f"-DFX_PREV={prev:#x}",
+                "-c", str(SRC / "fx_boot.S"), "-o", str(obj)])
+        ld.write_text(LINK_BOOT.format(at=at), encoding="utf-8")
+        gx.run([gx.CROSS + "ld", "-T", str(ld), "--no-warn-rwx-segments", "-o", str(elf), str(obj)])
+        gx.run([gx.CROSS + "objcopy", "-O", "binary", "-j", ".text", str(elf), str(out)])
+        return out.read_bytes()
 
 
 def build_tweak(stock, tweaks, tid, order, requires):
@@ -98,15 +122,23 @@ def build_tweak(stock, tweaks, tid, order, requires):
     patched, _ = build.apply_writes(stock, base)             # l'OS tel que le trouvent nos écritures
     payload, _ = build.build_payload(base, stock, None)
     at = BASE + len(stock) + len(payload)
-    last = base[-1]["append"]
-    if int(last["dest"], 16) != int(last["at"], 16) and int(last["dest"], 16) + last["size"] > BSS:
-        raise SystemExit(f"!! la charge utile de {base[-1]['id']} dépasse {BSS:#x}")
-    code, syms, bss_end = compile_fx(at, tg)
-    if at + len(code) > build.END_LIMIT:
+    for t in base:                                           # personne d'autre dans notre zone
+        ap_ = t["append"]
+        if int(ap_["dest"], 16) != int(ap_["at"], 16) and int(ap_["dest"], 16) + ap_["size"] > DST:
+            raise SystemExit(f"!! la charge utile de {t['id']} dépasse {DST:#x}")
+    code, syms, bss_end = compile_fx(tg)
+    if bss_end > DST_END:
+        raise SystemExit(f"!! BSS jusqu'à {bss_end:#x} : au-delà de {DST_END:#x}")
+    # le crochet de démarrage en place : jsr <adresse> en BOOT_CALL (Model-TG), celle du crochet précédent
+    call = patched[BOOT_CALL - BASE:BOOT_CALL - BASE + 6]
+    if call[:2] != b"\x4e\xb9":
+        raise SystemExit(f"!! {BOOT_CALL:#x} : jsr abs.l attendu (Model-TG), trouvé {call.hex()}")
+    prev = struct.unpack(">I", call[2:])[0]
+    stub = boot_stub(at, len(code) // 4, prev)
+    blob = stub + code
+    if at + len(blob) > build.END_LIMIT:
         raise SystemExit(f"!! l'OS agrandi dépasserait {build.END_LIMIT:#x}")
-    if bss_end > BSS_END:
-        raise SystemExit(f"!! BSS jusqu'à {bss_end:#x} : au-delà de {BSS_END:#x}")
-    writes = []
+    writes = [{"off": BOOT_CALL + 2 - BASE, "old": call[2:].hex(), "new": struct.pack(">I", at).hex()}]
     for va, sym, op, stock_hex, tg_sym, _ in HOOKS:
         if tg_sym:                                           # l'appel que Model-TG a mis là
             old = struct.pack(">HI", 0x4eb9, int(tg[tg_sym], 16))
@@ -132,22 +164,23 @@ def build_tweak(stock, tweaks, tid, order, requires):
             "Settings tenue + potard DELAY SEND : l'algorithme du delay (Original, Tape) ; + REVERB SEND : celui de la",
             "reverb (Original, Plate). Le choix est enregistré avec le pattern (octet +512 des pistes 1 et 2, bits 5-7,",
             "inutilisé par l'OS) ; un pattern sans choix garde les effets d'origine, inchangés.",
-            "Tape : écho à bande (pleurage, saturation, répétitions de plus en plus sombres ; 2,7 s au plus, Fdbk à",
+            "Tape : écho à bande (pleurage, saturation, répétitions de plus en plus sombres ; 5,4 s au plus, Fdbk à",
             "fond : l'écho s'emballe). Plate : la reverb des modules d'Émilie Gillet (clouds/dsp/fx/reverb.h, MIT),",
             "réécrite en virgule fixe et calculée à 24 kHz. TIME, FDBK, SIZE et TONE gardent leur rôle.",
-            f"S'ajoute après {' et '.join(requires)} : {len(code)} o de code en place à {at:#x}, mémoires en BSS",
-            f"({BSS:#x}..{bss_end:#x}). Expérimental : jamais essayé sur la machine.",
-            "Généré par tools/gen_fx.py, notes/44.",
+            f"S'ajoute après {' et '.join(requires)} : {len(code)} o de code recopiés au démarrage de {at + len(stub):#x}",
+            f"à {DST:#x} (crochet de {len(stub)} o en {at:#x}, avant celui en {prev:#x}), mémoires jusqu'à {bss_end:#x}.",
+            "Expérimental : jamais essayé sur la machine. Généré par tools/gen_fx.py, notes/44.",
         ],
         "device": "Model:Cycles",
         "os": "1.13",
         "section": 3,
         "requires": list(requires),
         "conflicts": others,
-        "symbols": {n: f"{syms[n]:#x}" for n in SYMBOLS},
+        "symbols": {**{n: f"{syms[n]:#x}" for n in SYMBOLS}, "fx_boot": f"{at:#x}", "fx_blob": f"{at + len(stub):#x}",
+                    "fx_prev": f"{prev:#x}", "fx_dst": f"{DST:#x}", "fx_size": f"{len(code):#x}"},
         "writes": writes,
-        "append": {"at": f"{at:#x}", "dest": f"{at:#x}", "size": len(code),
-                   "parts": [{"dest": f"{at:#x}", "hex": code.hex()}], "reloc": []},
+        "append": {"at": f"{at:#x}", "dest": f"{at:#x}", "size": len(blob),
+                   "parts": [{"dest": f"{at:#x}", "hex": blob.hex()}], "reloc": []},
     }
     build.apply_writes(patched, [tweak])                     # les octets attendus collent
     return tweak
@@ -167,7 +200,7 @@ def main():
         tweak = build_tweak(stock, tweaks, tid, order, requires)
         text = json.dumps(tweak, indent=1, ensure_ascii=False) + "\n"
         out = DEV / name
-        print("  " + tweak["description"][-3])
+        print("  " + tweak["description"][-3] + " " + tweak["description"][-2])
         if args.check:
             ok = out.exists() and out.read_text(encoding="utf-8") == text
             print(f"  {name} {'est à jour' if ok else 'NE CORRESPOND PAS (autre GCC ?)'}")

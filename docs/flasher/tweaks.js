@@ -1776,7 +1776,20 @@ window.MC_TWEAKS = {
     "mq_toggle": "0x401b7978",
     "mq_pending": "0x401b7a68",
     "mq_apply": "0x401b79fe",
-    "voice_quiet": "0x401adae0"
+    "voice_quiet": "0x401adae0",
+    "set_held": "0x401b235c",
+    "mod_used": "0x401b2360",
+    "show_popup": "0x401b2284",
+    "gm_enc_gate": "0x401b0d18",
+    "fx_a": "0x401b71b0",
+    "fx_b": "0x401b7230",
+    "fx_c": "0x401b7298",
+    "fx_early": "0x401b715c",
+    "fx_off": "0x401b7180",
+    "fx_skip": "0x401b7184",
+    "fx_setup": "0x401b7188",
+    "fx_insil": "0x401b718c",
+    "fx_cnt": "0x401b7190"
    }
   },
   {

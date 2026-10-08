@@ -144,7 +144,9 @@ ST_SYMBOLS = ("blob_start", "reserved_end", "REGION_END", "param_table", "boot_e
               "ah_noenv", "voice_ptr", "SLD_BASE", "sld_init", "blk_clk", "mq_toggle", "mq_pending", "mq_apply",
               "voice_quiet",
               # pour tools/gen_fx.py (notes/44) : la touche Settings tenue et son accord, le popup, le passage des encodeurs
-              "set_held", "mod_used", "show_popup", "gm_enc_gate")
+              "set_held", "mod_used", "show_popup", "gm_enc_gate",
+              # pour tools/emu/test_fx.py : l'arrêt des effets au silence (ses fx_a, fx_b, fx_c et leur état)
+              "fx_a", "fx_b", "fx_c", "fx_early", "fx_off", "fx_skip", "fx_setup", "fx_insil", "fx_cnt")
 
 
 def export(cycles, repo, patches=()):
