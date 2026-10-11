@@ -20,8 +20,10 @@
   "model-tg-st"
  ],
  "conflicts": [
+  "fx-macro-mod-tg",
   "fx-macro-tg",
   "macro",
+  "macro-mod-tg",
   "macro-tg",
   "model-tg",
   "sdvintage-7th",

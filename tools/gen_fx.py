@@ -3,6 +3,7 @@
 
   - 56-fx-tg.json : avec Model-TG (s'ajoute après model-tg-st) ;
   - 57-fx-macro-tg.json : avec Model-TG et la machine MACRO (s'ajoute après model-tg-st et macro-tg).
+  - 58-fx-macro-mod-tg.json : avec Model-TG, MACRO et MOD (s'ajoute après model-tg-st et macro-mod-tg, notes/57).
 
 tools/machines/fx/ : fx.c (Tape, Plate, le choix par pattern, l'interface) et fx_hooks.S (les accroches), compilés
 et liés ici pour 0x46750000, dans le dernier Mo de la zone de Model-TG, après la charge utile de MACRO ; les deux
@@ -60,6 +61,7 @@ LINK_BOOT = """SECTIONS
 VARIANTS = (
     ("fx-tg", 56, "56-fx-tg.json", ("model-tg-st",)),
     ("fx-macro-tg", 57, "57-fx-macro-tg.json", ("model-tg-st", "macro-tg")),
+    ("fx-macro-mod-tg", 58, "58-fx-macro-mod-tg.json", ("model-tg-st", "macro-mod-tg")),   # avec MOD (notes/57)
 )
 # (adresse, symbole, instruction, octets attendus : None = ceux de l'OS d'origine, sinon le symbole de Model-TG appelé)
 HOOKS = (
@@ -159,7 +161,7 @@ def build_tweak(stock, tweaks, tid, order, requires):
         "id": tid,
         "order": order,
         "name": "FX : delay Tape et reverb Plate au choix, par pattern (avec Model-TG"
-                + (" et MACRO)" if "macro-tg" in requires else ")"),
+                + (" et MACRO)" if "macro-tg" in requires else " et MACRO + MOD)" if "macro-mod-tg" in requires else ")"),
         "description": [
             "Settings tenue + potard DELAY SEND : l'algorithme du delay (Original, Tape) ; + REVERB SEND : celui de la",
             "reverb (Original, Plate). Le choix est enregistré avec le pattern (octet +512 des pistes 1 et 2, bits 5-7,",

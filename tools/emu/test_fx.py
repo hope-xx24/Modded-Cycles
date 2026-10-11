@@ -382,9 +382,11 @@ def boot(base, fx, syms, code, tweaks, stock, ids):
     low = bytes(ua.mem_read(0x46700000, dst - 0x46700000)) == bytes(ub.mem_read(0x46700000, dst - 0x46700000))
     check(ma == mb and low, "toute la mémoire après le démarrage (image, BSS, charge utile de MACRO) identique au "
           "firmware sans FX, hors nos 4 écritures et notre code")
-    if "macro-tg" in ids:
-        want = build.payload_runtime(tweaks["macro-tg"], stock, None)
-        pd = int(tweaks["macro-tg"]["append"]["dest"], 16)
+    for mid in ("macro-tg", "macro-mod-tg"):
+        if mid not in ids:
+            continue
+        want = build.payload_runtime(tweaks[mid], stock, None)
+        pd = int(tweaks[mid]["append"]["dest"], 16)
         check(bytes(ub.mem_read(pd, len(want))) == want, f"la charge utile de MACRO est reconstituée à {pd:#x} comme sans FX")
 
 
@@ -794,6 +796,7 @@ def main():
     ap.add_argument("--cycles", required=True, help="model-cycles_OS1.13.syx officiel")
     ap.add_argument("--with", dest="extra", default="", help="autres tweaks appliqués avant (6ch-usbup,…)")
     ap.add_argument("--no-macro", action="store_true", help="la version sans MACRO (fx-tg)")
+    ap.add_argument("--mod", action="store_true", help="la version avec MACRO et MOD (fx-macro-mod-tg, notes/57)")
     ap.add_argument("--quick", action="store_true", help="moins de blocs")
     ap.add_argument("--only", default="", help="seulement ces parties (2,5,8 ; la 1 est toujours faite)")
     args = ap.parse_args()
@@ -801,8 +804,9 @@ def main():
     dev, tweaks = build.load_catalog()["model-cycles_OS1.13"]
     if build.sha(stock) != dev["section_sha256"]:
         raise SystemExit("!! ce n'est pas le MAIN OS 1.13 officiel")
-    ids = [i for i in args.extra.split(",") if i] + ["model-tg-st"] + ([] if args.no_macro else ["macro-tg"])
-    tid = "fx-tg" if args.no_macro else "fx-macro-tg"
+    ids = [i for i in args.extra.split(",") if i] + ["model-tg-st"] + \
+        ([] if args.no_macro else ["macro-mod-tg"] if args.mod else ["macro-tg"])
+    tid = "fx-tg" if args.no_macro else "fx-macro-mod-tg" if args.mod else "fx-macro-tg"
 
     def image(names):
         chosen = sorted((tweaks[i] for i in names), key=lambda t: t["order"])

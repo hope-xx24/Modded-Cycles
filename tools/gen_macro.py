@@ -165,7 +165,7 @@ def compile_machine(tmp, repo, pay, bss_at=None, code_end=None):
     return blob, syms, (bss[0] + bss[1] + 3) & ~3
 
 
-def dispatch_tg_asm(syms, rnd_at, tg):
+def dispatch_tg_asm(syms, rnd_at, tg, quiet=()):
     """Avec Model-TG : détour de l'appel update/render (0x400a7dfe, registres : gs.dispatch_asm). Les machines
     d'origine et le Sampler (index < 7) passent par le dispatch de Model-TG ; MACRO par nos update/render, puis par la
     fin de son étage d'amplitude (ah_noenv : Attack, Filtre/Résonance, rééchantillonnage) ; son temps va sur la page
@@ -179,7 +179,11 @@ dispatch:
 	cmp.l	%d0, %d4
 	bcc.s	4f
 	jmp	{tg['sampler_dispatch']:#x}	/* machines d'origine, Sampler */
-4:	move.l	0xfc07800c, %d0		/* minuteur de la page System de Model-TG */
+4:{"".join(f"""
+	moveq	#{q}, %d0			/* machine qui ne sonne pas (MOD, notes/57) : sortie nulle */
+	cmp.l	%d0, %d4
+	beq.w	8f
+""" for q in quiet)}	move.l	0xfc07800c, %d0		/* minuteur de la page System de Model-TG */
 	move.l	%d0, {tg['prof_ta']:#x}
 	movea.l	%d6, %a0		/* update puis render, comme l'OS */
 	movea.l	(%a0,%d4.l*4), %a1
@@ -200,7 +204,13 @@ dispatch:
 	lea	{tg['prof_trk']:#x}, %a0
 	add.l	%d0, (%a0,%d2.l*4)
 9:	jmp	{gs.DISPATCH[1]:#x}
-"""
+""" + ("" if not quiet else f"""8:	movea.l	%d3, %a0
+	moveq	#32, %d0
+7:	clr.l	(%a0)+
+	subq.l	#1, %d0
+	bne.s	7b
+	jmp	{gs.DISPATCH[1]:#x}
+""")
 
 
 def assemble(tmp, name, src, at, defs=()):
@@ -226,28 +236,48 @@ def other_ids():
     return ids
 
 
-def build_tweak(img, repo, tg=None):
-    """Tweak de la machine MACRO. tg : Model-TG (gs.tg_context) pour la version combinée."""
+def build_tweak(img, repo, tg=None, extra=(), prebuilt=None):
+    """Tweak de la machine MACRO. tg : Model-TG (gs.tg_context) pour la version combinée. extra : d'autres machines
+    après MACRO, dans la même charge utile (la machine MOD, tools/gen_mod.py, notes/57) : dictionnaires comme MACHINE,
+    plus "sources"/"keep" (compile_machine), "update"/"render" (leurs symboles), "quiet" (ne sonne pas : sortie nulle,
+    sans update/render ni étage d'ampli), "decay_knob" (le 5e descripteur renommé : nom long, court, défaut, min, max)
+    et "writes" (fonction (cur, syms, w) : ses écritures en plus). prebuilt : (octets, symboles, fin du BSS) de MACRO
+    déjà compilée (repris d'un tweak versionné : sans g++) ; extra : fonction "link"(tmp, code_at, bss_at) ->
+    (octets, symboles, fin du BSS) qui compile la machine juste après."""
     pay = gs.PAY_TG if tg else gs.PAY_ALONE
     gs.set_base(pay)
     first = TG_FIRST if tg else 6
-    nm = first + 1                              # machines : 6 d'origine, le Sampler avec Model-TG, puis MACRO
+    machines = [MACHINE, *extra]
+    n = len(machines)
+    nm = first + n                              # machines : 6 d'origine, le Sampler avec Model-TG, MACRO, puis extra
     top = nm - 1
-    n = 1
     cur = tg["img"] if tg else img              # l'image telle que nos écritures la trouvent
     u32 = lambda va: struct.unpack_from(">I", cur, va - BASE)[0]
     m = MACHINE
+    if extra and not tg:
+        raise SystemExit("!! machines en plus : seulement avec Model-TG")
     with tempfile.TemporaryDirectory() as d:
         tmp = pathlib.Path(d)
-        blob, syms, bss_end = compile_machine(tmp, repo, pay)
+        blob, syms, bss_end = prebuilt or compile_machine(tmp, repo, pay)
+        syms = dict(syms)
+        for x in extra:                         # les machines en plus : juste après MACRO (code), et ses variables
+            at = (pay + len(blob) + 15) & ~15
+            more, msyms, bss_end = x["link"](tmp, at, (bss_end + 15) & ~15)
+            blob = blob + bytes(at - pay - len(blob)) + more
+            syms.update(msyms)
+            if pay + len(blob) > gs.STUBS:
+                raise SystemExit(f"!! {x['name']} : code jusqu'à {pay + len(blob):#x}, au-delà de {gs.STUBS:#x}")
         names_at, upd_at, rnd_at, map_at = gs.DATA, gs.DATA + 4 * nm, gs.DATA + 8 * nm, gs.DATA + 16 * nm
-        stubs, ssyms = assemble(tmp, "det", gs.detours_asm(n, [m["image"]], [76], tg)
-                                + (dispatch_tg_asm(syms, rnd_at, tg) if tg else ""), gs.STUBS)
+        quiet = [first + 1 + i for i, x in enumerate(extra) if x.get("quiet")]
+        stubs, ssyms = assemble(tmp, "det", gs.detours_asm(n, [x["image"] for x in machines],
+                                                           [76 + 5 * i for i in range(n)], tg)
+                                + (dispatch_tg_asm(syms, rnd_at, tg, quiet) if tg else ""), gs.STUBS)
         if gs.STUBS + len(stubs) > gs.DATA:
             raise SystemExit("!! détours trop grands")
 
         # --- données (comme gs.build_tweak) : noms, tables update/render, machine -> enregistrement, chaînes
-        strings = [m["name"]] + [k[i] for k in m["knobs"] for i in (0, 1)]
+        strings = [s_ for x in machines for s_ in [x["name"]] + [k[i] for k in x["knobs"] for i in (0, 1)]
+                   + ([x["decay_knob"][0], x["decay_knob"][1]] if x.get("decay_knob") else [])]
         at, addr = map_at + ((nm + 3) & ~3), {}
         for s_ in strings:
             if s_ not in addr:
@@ -255,12 +285,14 @@ def build_tweak(img, repo, tg=None):
                 at += len(s_) + 1
         if tg:                                  # noms : ceux de Model-TG (le Sampler montre son échantillon)
             blob_u32 = lambda va: struct.unpack_from(">I", tg["blob"], va - tg["blob_at"])[0]
-            names = [blob_u32(tg["sampler_name_table"] + 4 * i) for i in range(7)] + [addr[m["name"]]]
+            names = [blob_u32(tg["sampler_name_table"] + 4 * i) for i in range(7)] + [addr[x["name"]] for x in machines]
         else:
             names = [u32(g7.NAMES + 4 * i) for i in range(6)] + [addr[m["name"]]]
         pad = [u32(g7.UPDATE_TAB)] * (first - 6), [u32(g7.RENDER_TAB)] * (first - 6)   # entrée 6 du Sampler : jamais lue
-        upd = [u32(g7.UPDATE_TAB + 4 * i) for i in range(6)] + pad[0] + [syms["macro_update"]]
-        rnd = [u32(g7.RENDER_TAB + 4 * i) for i in range(6)] + pad[1] + [syms["macro_render"]]
+        upd = [u32(g7.UPDATE_TAB + 4 * i) for i in range(6)] + pad[0] + [syms["macro_update"]] \
+            + [syms[x["update"]] for x in extra]
+        rnd = [u32(g7.RENDER_TAB + 4 * i) for i in range(6)] + pad[1] + [syms["macro_render"]] \
+            + [syms[x["render"]] for x in extra]
         data = bytearray()
         for t in (names, upd, rnd, range(1, nm + 1)):
             data += b"".join(g7.be32(x) for x in t)
@@ -272,18 +304,26 @@ def build_tweak(img, repo, tg=None):
 
         # --- 5 descripteurs, sur le modèle de ceux de SNARE (gs.build_tweak)
         new = bytearray()
-        for k, (long_, short, default, *rng) in enumerate(m["knobs"]):
-            e = bytearray(img[g7.DESC + (g7.SNARE_DESC + k) * g7.DSTRIDE - BASE:][:g7.DSTRIDE])
-            e[0x00:0x04] = g7.be32(6)
-            if rng:
-                e[0x08:0x0c], e[0x0c:0x10] = g7.be32(rng[0] << 8), g7.be32(rng[1] << 8)
-            e[0x10:0x14] = g7.be32(default << 8)
-            e[0x2c:0x30] = g7.be32(addr[long_])
-            e[0x34:0x38] = g7.be32(addr[short])
+        for mi, x in enumerate(machines):
+            for k, (long_, short, default, *rng) in enumerate(x["knobs"]):
+                e = bytearray(img[g7.DESC + (g7.SNARE_DESC + k) * g7.DSTRIDE - BASE:][:g7.DSTRIDE])
+                e[0x00:0x04] = g7.be32(6)
+                if rng:
+                    e[0x08:0x0c], e[0x0c:0x10] = g7.be32(rng[0] << 8), g7.be32(rng[1] << 8)
+                e[0x10:0x14] = g7.be32(default << 8)
+                e[0x2c:0x30] = g7.be32(addr[long_])
+                e[0x34:0x38] = g7.be32(addr[short])
+                new += e
+            e = bytearray(img[g7.DESC + (g7.SNARE_DESC + 4) * g7.DSTRIDE - BASE:][:g7.DSTRIDE])
+            if x.get("decay_knob"):
+                long_, short, default, lo, hi = x["decay_knob"]
+                e[0x08:0x0c], e[0x0c:0x10] = g7.be32(lo << 8), g7.be32(hi << 8)
+                e[0x10:0x14] = g7.be32(default << 8)
+                e[0x2c:0x30] = g7.be32(addr[long_])
+                e[0x34:0x38] = g7.be32(addr[short])
+            else:
+                e[0x10:0x14] = g7.be32(x["decay"] << 8)
             new += e
-        e = bytearray(img[g7.DESC + (g7.SNARE_DESC + 4) * g7.DSTRIDE - BASE:][:g7.DSTRIDE])
-        e[0x10:0x14] = g7.be32(m["decay"] << 8)
-        new += e
 
         # --- écritures (comme gs.build_tweak, sans ce qui est propre au Syntakt)
         writes = []
@@ -358,6 +398,9 @@ def build_tweak(img, repo, tg=None):
             w(0x4005a6b6, jmp(tg["sampler_amp_gate"]), jmp(ssyms["amp_gate"]))
         for va, old, sym in g7.CALLS:
             w(va, bytes.fromhex(old), bytes.fromhex("4eb9") + g7.be32(ssyms[sym]) + bytes.fromhex("4e71"))
+        for x in extra:
+            if x.get("writes"):
+                x["writes"](cur, syms, w)
 
         # --- charge utile
         parts = [

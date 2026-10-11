@@ -518,6 +518,7 @@ Plate, échantillon par échantillon, à `fx.c` compilé pour l'ordinateur (`gcc
 python3 tools/gen_fx.py --cycles model-cycles_OS1.13.syx [--check]
 python3 tools/emu/test_fx.py --cycles model-cycles_OS1.13.syx [--with 6ch-usbup] [--no-macro] [--quick] [--only 3,8]   # ~25 min
 python3 tools/build.py -i model-cycles_OS1.13.syx -t 6ch-usbup,model-tg-st,macro-tg,fx-macro-tg
+python3 tools/emu/test_fx.py --cycles model-cycles_OS1.13.syx --mod --quick   # par-dessus MACRO + MOD (58-fx-macro-mod-tg)
 ```
 Incompatible avec les moteurs du Syntakt (même place en mémoire) et avec tout autre tweak qui ajoute une charge utile.
 
@@ -527,6 +528,28 @@ Incompatible avec les moteurs du Syntakt (même place en mémoire) et avec tout 
 | `6ch-usbup,model-tg-st,fx-tg` | `5cedb25f35d56bb7983b9689a1f2cf7e06e6188fb873e4051f9210231ce6be15` |
 | `model-tg-st,macro-tg,fx-macro-tg` | `b12750592f15cced59d477a24edf3b4cf06afda03997071dc3e41794d0ee4b7d` |
 | `6ch-usbup,model-tg-st,macro-tg,fx-macro-tg` | `10383f243a9b1f8888ee84803a83e805e844bdee88e279ef60e1ed715cf0ca09` |
+| `6ch-usbup,model-tg-st,macro-mod-tg,fx-macro-mod-tg` | `017deb24bb654125a1b9d2d79dc9a677bcbe7dc2db93dc0e1236e132b7fcfbfe` |
+
+### Machine MOD : LFO et aléatoire sur les potards des autres pistes
+
+`tweaks/model-cycles_OS1.13/32-macro-mod-tg.json` (Model-TG + MACRO + MOD, à la place de `32-macro-tg.json`, après
+`model-tg-st`) est produit par `tools/gen_mod.py` ([note 57](notes/57-machine-mod.md)) : MACRO est reprise octet pour
+octet de `32-macro-tg.json` (ni g++ ni les sources de Braids), `tools/machines/mod/` est compilé par
+`m68k-linux-gnu-gcc` (13.3 ; un autre GCC donne d'autres octets) et lié juste après. MOD est la 9e machine : COLOR =
+Rate, SHAPE = Wave, SWEEP = Depth, CONTOUR = piste visée, DECAY = potard visé. **Jamais essayé sur la machine** : hors
+du flasher web, à flasher avec une interface MIDI à portée ([FLASH.md](FLASH.md)).
+```sh
+python3 tools/gen_mod.py --cycles model-cycles_OS1.13.syx [--check]
+python3 tools/emu/test_mod.py --cycles model-cycles_OS1.13.syx [--quick] [--with 6ch-usbup]   # ~25 min, 10 avec --quick
+python3 tools/build.py -i model-cycles_OS1.13.syx -t 6ch-usbup,model-tg-st,macro-mod-tg[,fx-macro-mod-tg]
+```
+
+| `-t` | MAIN OS patché (SHA-256) |
+|---|---|
+| `model-tg-st,macro-mod-tg` | `125590c12ae5a920e3c8acd175f659d26db96447bc7ebea1c34c959d48b08c23` |
+| `6ch-usbup,model-tg-st,macro-mod-tg` | `9d276ae665c89657354ca960cae09d24aacaf06a777e5a5343d45ffed558fab6` |
+| `model-tg-st,macro-mod-tg,fx-macro-mod-tg` | `4764f57351afc536898664999191d52890360890dfadb68ce308dabe5af1666c` |
+| `6ch-usbup,model-tg-st,macro-mod-tg,fx-macro-mod-tg` | `017deb24bb654125a1b9d2d79dc9a677bcbe7dc2db93dc0e1236e132b7fcfbfe` |
 
 ### Écoute d'un pas en pause
 

@@ -258,11 +258,12 @@ Firmware : `build.py -t 6ch-usbup,model-tg-st,macro-tg,fx-macro-tg`. Une interfa
 - Le flasher web : après l'essai sur la machine, et avec `ref_mainos.py` (il faut le fichier du Syntakt pour recalculer
   toutes les combinaisons).
 
-## 11. Mise à jour du 11/10/2026 : fusion de `main`, MACRO allégée
+## 11. Mise à jour du 11/10/2026 : fusion de `main`, MACRO allégée, MOD
 
 - Fusion de `main` du projet d'origine (MACRO allégée de la [55](55-macro-allegee-et-lofi.md), filtre par piste, etc.).
   La note passe de 44 à 56 et les tweaks de 44/45 à `56-fx-tg.json` / `57-fx-macro-tg.json` (ordres 56, 57) : les
   numéros 44 et 45 étaient pris dans `main`.
 - La charge utile de MACRO a changé (324 576 o) : `57-fx-macro-tg.json` est régénéré (crochet en `0x401d9374`) ; le
   code de FX ne change pas, toujours recopié à `0x46750000` (MACRO s'arrête à `0x4674f3e0`).
-- Preuve refaite : `test_fx.py --with 6ch-usbup --quick` (MACRO), et `--no-macro --quick` : TOUT OK.
+- Nouvelle variante `58-fx-macro-mod-tg.json`, après `macro-mod-tg` (MACRO + la machine MOD, [57](57-machine-mod.md)).
+- Preuve refaite : `test_fx.py --with 6ch-usbup --quick` (MACRO), `--no-macro --quick` et `--mod --quick` : TOUT OK.
