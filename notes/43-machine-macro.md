@@ -146,8 +146,9 @@ morceaux : les 100 Ko de variables ne prennent pas de place dans l'image. `stub.
 ## 6. Incompatibilités
 
 - **Moteurs du Syntakt** (toutes les combinaisons, seuls ou avec Model-TG) : même mécanique de machines ajoutées,
-  même place. Le flasher rend les deux cartes exclusives (`excludes`). Les réunir demanderait une charge utile commune :
-  [À FAIRE] si on le demande.
+  même place, donc pas `macro` avec eux. Le flasher rendait les deux cartes exclusives (`excludes`) ; depuis le
+  07/10/2026, cochées ensemble, elles donnent une version combinée, une charge utile commune avec MACRO après les
+  moteurs ([50](50-macro-avec-moteurs-syntakt.md)).
 - **SD VINTAGE** (`sdvintage-*`, `syntakt-vintage`, `syntakt-meter`…, hors du flasher) : même crochet de démarrage
   (`0x4016cae8`) et même charge utile à `0x43000000`.
 - `macro` seul ne va pas avec Model-TG : avec la carte Model-TG cochée, le flasher prend `model-tg-st` + `macro-tg`
@@ -281,6 +282,9 @@ MACRO lourdes font craquer le son.
 ## 11. Suite
 
 - Un régulateur de charge (celui des moteurs du Syntakt) si la machine craque.
+- 10/10/2026 : 13 modèles rendus à 48 kHz (moitié moins de calcul) et le lo-fi RATE / BITS sur FINE (FUNC + PITCH) :
+  [55](55-macro-allegee-et-lofi.md). FINE n'accorde plus MACRO.
 - Les moteurs de Plaits en virgule fixe, un par un, comparés au Plaits d'origine, dans la même machine s'ils tiennent
   en charge (candidats : les trois percussions analogiques, VA, FM, Chords, Speech, String, Modal).
-- MACRO avec les moteurs du Syntakt (une charge utile commune), si on le demande.
+- ~~MACRO avec les moteurs du Syntakt (une charge utile commune), si on le demande.~~ Demandé par Maxime le 07/10/2026,
+  fait : [50](50-macro-avec-moteurs-syntakt.md) (le régulateur des moteurs y veille aussi sur les pistes MACRO).

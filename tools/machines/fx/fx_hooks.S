@@ -1,4 +1,4 @@
-/* Accroches de FX (notes/44), liées avec fx.c après l'image (tools/gen_fx.py). Les écritures sur l'OS sont dans le
+/* Accroches de FX (notes/56), liées avec fx.c après l'image (tools/gen_fx.py). Les écritures sur l'OS sont dans le
  * générateur (HOOKS). */
 	.globl	fx_delay_entry, fx_reverb_entry, fx_enc_hook
 

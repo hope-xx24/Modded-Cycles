@@ -1,11 +1,11 @@
-# 44 — Delay et reverb au choix : Tape et Plate, par pattern
+# 56 — Delay et reverb au choix : Tape et Plate, par pattern
 
 Demande du propriétaire de ce fork (`hope-xx24/Modded-Cycles`), le 08/10/2026 : d'autres algorithmes d'effet,
 choisis avec **Settings + le potard de l'effet**, sur le modèle de la machine MACRO (du code libre porté sur le
 Cycles). Liste souhaitée : reverbs Dark, Plate, Shimmer, Supervoid ; delays Tape, Digital, Echo, Analog, Granular.
 Premier jalon retenu avec lui : **un delay Tape et une reverb Plate** en plus des effets d'origine, choisis avec
 Settings + DELAY SEND / REVERB SEND, **enregistrés par pattern**, à côté de MACRO, Model-TG et de l'audio USB
-6 canaux, pour sa machine. Tweaks `44-fx-tg.json` (avec Model-TG) et `45-fx-macro-tg.json` (avec Model-TG et MACRO),
+6 canaux, pour sa machine. Tweaks `56-fx-tg.json` (avec Model-TG) et `57-fx-macro-tg.json` (avec Model-TG et MACRO),
 générateur `tools/gen_fx.py`, sources `tools/machines/fx/`, preuve `tools/emu/test_fx.py` (référence
 `tools/emu/fx_ref.c`). Adresses : VA de l'OS 1.13.
 
@@ -257,3 +257,12 @@ Firmware : `build.py -t 6ch-usbup,model-tg-st,macro-tg,fx-macro-tg`. Une interfa
 - Ne plus lancer la préparation ni les DMA des effets d'origine quand les deux sont remplacés.
 - Le flasher web : après l'essai sur la machine, et avec `ref_mainos.py` (il faut le fichier du Syntakt pour recalculer
   toutes les combinaisons).
+
+## 11. Mise à jour du 11/10/2026 : fusion de `main`, MACRO allégée
+
+- Fusion de `main` du projet d'origine (MACRO allégée de la [55](55-macro-allegee-et-lofi.md), filtre par piste, etc.).
+  La note passe de 44 à 56 et les tweaks de 44/45 à `56-fx-tg.json` / `57-fx-macro-tg.json` (ordres 56, 57) : les
+  numéros 44 et 45 étaient pris dans `main`.
+- La charge utile de MACRO a changé (324 576 o) : `57-fx-macro-tg.json` est régénéré (crochet en `0x401d9374`) ; le
+  code de FX ne change pas, toujours recopié à `0x46750000` (MACRO s'arrête à `0x4674f3e0`).
+- Preuve refaite : `test_fx.py --with 6ch-usbup --quick` (MACRO), et `--no-macro --quick` : TOUT OK.

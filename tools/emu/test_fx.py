@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preuve des tweaks FX (notes/44) : le delay Tape et la reverb Plate au choix, par pattern.
+"""Preuve des tweaks FX (notes/56) : le delay Tape et la reverb Plate au choix, par pattern.
 
 Le vrai code de l'OS (Unicorn, EMAC exacte) : le delay et la reverb d'origine tournent en entier, avec leur
 préparation (0x4005802e), le pas de leurs lignes (0x40057942) et leurs transferts DMA (0x400573fa), l'eDMA étant

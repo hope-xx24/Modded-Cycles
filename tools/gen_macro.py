@@ -123,9 +123,12 @@ def license_text(repo):
             "Copyright 2012-2013 Emilie Gillet.\n\n" + body + "\n")
 
 
-def compile_machine(tmp, repo, pay):
-    """Braids + la passerelle, liés à pay (code, tables, données) et pay + BSS_OFF (variables). Renvoie (octets de
-    pay à la fin des données, symboles, fin du BSS)."""
+def compile_machine(tmp, repo, pay, bss_at=None, code_end=None):
+    """Braids + la passerelle, liés à pay (code, tables, données) et bss_at (variables ; pay + BSS_OFF par défaut).
+    Le code et les données doivent finir avant code_end (gs.STUBS par défaut). Renvoie (octets de pay à la fin des
+    données, symboles, fin du BSS)."""
+    bss_at = pay + BSS_OFF if bss_at is None else bss_at
+    code_end = gs.STUBS if code_end is None else code_end
     objs = []
     for s in SOURCES + (SRC / "macro.cc",):
         src = s if isinstance(s, pathlib.Path) else repo / s
@@ -136,7 +139,7 @@ def compile_machine(tmp, repo, pay):
     gx.run([gx.CROSS + "gcc", *CFLAGS_RT, "-c", str(SRC / "rt.c"), "-o", str(o)])
     objs.append(o)
     ld, elf, out = tmp / "link.ld", tmp / "macro.elf", tmp / "macro.bin"
-    ld.write_text(LINK.format(code=pay, bss=pay + BSS_OFF))
+    ld.write_text(LINK.format(code=pay, bss=bss_at))
     gx.run([gx.CROSS + "ld", "-T", str(ld), "--gc-sections", "--no-warn-rwx-segments", "-e", "macro_update",
             "-u", "macro_render", "-o", str(elf), *map(str, objs)])
     secs = {}
@@ -154,10 +157,10 @@ def compile_machine(tmp, repo, pay):
         p_ = line.split()
         if len(p_) == 3:
             syms[p_[2]] = int(p_[0], 16)
-    if pay + len(blob) > gs.STUBS:
+    if pay + len(blob) > code_end:
         raise SystemExit(f"!! code et tables de Braids trop grands : {len(blob)} o")
-    bss = secs.get(".bss", (pay + BSS_OFF, 0))
-    if bss[0] != pay + BSS_OFF:
+    bss = secs.get(".bss", (bss_at, 0))
+    if bss[0] != bss_at:
         raise SystemExit("!! BSS")
     return blob, syms, (bss[0] + bss[1] + 3) & ~3
 

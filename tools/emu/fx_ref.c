@@ -1,4 +1,4 @@
-/* Référence de la preuve de FX (notes/44, tools/emu/test_fx.py) : tools/machines/fx/fx.c compilé pour l'ordinateur
+/* Référence de la preuve de FX (notes/56, tools/emu/test_fx.py) : tools/machines/fx/fx.c compilé pour l'ordinateur
  * (FX_HOST : l'arithmétique exacte de l'EMAC, comme emac.py), piloté bloc par bloc.
  *
  * Entrée (stdin), par bloc : 5 x int32 (algorithme du delay, de la reverb, paramètre 1, paramètre 2, tempo) puis

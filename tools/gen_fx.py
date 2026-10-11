@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Génère les tweaks FX : algorithmes de delay et de reverb au choix, par pattern (notes/44).
+"""Génère les tweaks FX : algorithmes de delay et de reverb au choix, par pattern (notes/56).
 
-  - 44-fx-tg.json : avec Model-TG (s'ajoute après model-tg-st) ;
-  - 45-fx-macro-tg.json : avec Model-TG et la machine MACRO (s'ajoute après model-tg-st et macro-tg).
+  - 56-fx-tg.json : avec Model-TG (s'ajoute après model-tg-st) ;
+  - 57-fx-macro-tg.json : avec Model-TG et la machine MACRO (s'ajoute après model-tg-st et macro-tg).
 
 tools/machines/fx/ : fx.c (Tape, Plate, le choix par pattern, l'interface) et fx_hooks.S (les accroches), compilés
 et liés ici pour 0x46750000, dans le dernier Mo de la zone de Model-TG, après la charge utile de MACRO ; les deux
@@ -38,7 +38,7 @@ BASE = gx.BASE
 DST = 0x46750000                   # fin de la charge utile de MACRO avec Model-TG : 0x4674f2f0 (notes/43 §4)
 DST_END = 0x46800000               # fin du Mo laissé par Model-TG (notes/31 §4)
 BOOT_CALL = 0x40000530             # jsr <crochet de démarrage> : Model-TG, puis MACRO, y ont mis le leur (notes/31, 43)
-# -O2 : le coût par bloc compte (notes/44 §7) ; pas de bibliothèque : ni division 64 bits ni flottant dans fx.c
+# -O2 : le coût par bloc compte (notes/56 §7) ; pas de bibliothèque : ni division 64 bits ni flottant dans fx.c
 CFLAGS = ["-mcpu=54418", "-O2", "-ffreestanding", "-fno-builtin", "-nostdlib", "-fno-pic", "-fno-common",
           "-ffunction-sections", "-fdata-sections", "-fomit-frame-pointer", "-Wall", "-Wextra", "-Werror"]
 LINK = """SECTIONS
@@ -58,8 +58,8 @@ LINK_BOOT = """SECTIONS
 """
 # (id, ordre, fichier, tweaks sur lesquels il s'ajoute)
 VARIANTS = (
-    ("fx-tg", 44, "44-fx-tg.json", ("model-tg-st",)),
-    ("fx-macro-tg", 45, "45-fx-macro-tg.json", ("model-tg-st", "macro-tg")),
+    ("fx-tg", 56, "56-fx-tg.json", ("model-tg-st",)),
+    ("fx-macro-tg", 57, "57-fx-macro-tg.json", ("model-tg-st", "macro-tg")),
 )
 # (adresse, symbole, instruction, octets attendus : None = ceux de l'OS d'origine, sinon le symbole de Model-TG appelé)
 HOOKS = (
@@ -169,7 +169,7 @@ def build_tweak(stock, tweaks, tid, order, requires):
             "réécrite en virgule fixe et calculée à 24 kHz. TIME, FDBK, SIZE et TONE gardent leur rôle.",
             f"S'ajoute après {' et '.join(requires)} : {len(code)} o de code recopiés au démarrage de {at + len(stub):#x}",
             f"à {DST:#x} (crochet de {len(stub)} o en {at:#x}, avant celui en {prev:#x}), mémoires jusqu'à {bss_end:#x}.",
-            "Expérimental : jamais essayé sur la machine. Généré par tools/gen_fx.py, notes/44.",
+            "Expérimental : jamais essayé sur la machine. Généré par tools/gen_fx.py, notes/56.",
         ],
         "device": "Model:Cycles",
         "os": "1.13",

@@ -143,10 +143,13 @@ ST_SYMBOLS = ("blob_start", "reserved_end", "REGION_END", "param_table", "boot_e
               "apply_names", "mod_held", "prof_t0", "prof_ta", "prof_trk", "rs_state", "rs_src", "sle_run", "sle_trk",
               "ah_noenv", "voice_ptr", "SLD_BASE", "sld_init", "blk_clk", "mq_toggle", "mq_pending", "mq_apply",
               "voice_quiet",
-              # pour tools/gen_fx.py (notes/44) : la touche Settings tenue et son accord, le popup, le passage des encodeurs
+              # pour tools/gen_fx.py (notes/56) : la touche Settings tenue et son accord, le popup, le passage des encodeurs
               "set_held", "mod_used", "show_popup", "gm_enc_gate",
               # pour tools/emu/test_fx.py : l'arrêt des effets au silence (ses fx_a, fx_b, fx_c et leur état)
               "fx_a", "fx_b", "fx_c", "fx_early", "fx_off", "fx_skip", "fx_setup", "fx_insil", "fx_cnt")
+# Symboles dont l'écoute des samples a besoin (tools/gen_sample_preview.py, notes/46), dans les deux tweaks : son code
+# appelle ces fonctions et lit ces variables de Model-TG, aux mêmes adresses dans les deux builds.
+PV_SYMBOLS = ("tok_of", "sound_obj", "ensure_loaded", "slot_hash", "pd_mode", "ld_busy", "pad_load_hook")
 
 
 def export(cycles, repo, patches=()):
@@ -199,7 +202,7 @@ def export_build(cycles, repo):
 
 def adapt_st(tw, stock, syms):
     """La base de la version combinée (30-model-tg-st.json)."""
-    out = adapt(tw, stock)
+    out = adapt(tw, stock, syms)
     others = sorted(set(out["conflicts"]) - {"model-tg-st"} | {"model-tg"})
     missing = [n for n in ST_SYMBOLS if n not in syms]
     if missing:
@@ -220,13 +223,16 @@ def adapt_st(tw, stock, syms):
             "syntakt-tg-…, qui s'ajoute après lui et chaîne ses détours.",
         ],
         "conflicts": others,
-        "symbols": {n: f"{syms[n]:#x}" for n in ST_SYMBOLS},
+        "symbols": {n: f"{syms[n]:#x}" for n in ST_SYMBOLS + tuple(n for n in PV_SYMBOLS if n not in ST_SYMBOLS)},
     })
     return out
 
 
-def adapt(tw, stock):
+def adapt(tw, stock, syms):
     """Format et métadonnées de ce dépôt ; vérifie que le tweak redonne l'image exportée."""
+    missing = [n for n in PV_SYMBOLS if n not in syms]
+    if missing:
+        raise SystemExit(f"!! symboles absents du build de Model-TG : {missing}")
     patched, _ = build.apply_writes(stock, [tw])
     payload, _ = build.build_payload([tw], stock, None)
     if build.sha(bytes(patched) + payload) != tw["result_sha256"]:
@@ -271,6 +277,7 @@ def adapt(tw, stock):
         "conflicts": others,
         "writes": writes,
         "append": tw["append"],
+        "symbols": {n: f"{syms[n]:#x}" for n in PV_SYMBOLS},
     }
 
 
@@ -291,7 +298,7 @@ def main():
         tw, stock, log, syms = export(cycles, repo, patches)
         print("\n".join("  " + x.strip() for x in log.splitlines() if "MAIN OS sha256" in x or "one blob" in x
                         or "Modded-Cycles tweak" in x))
-        out = adapt_st(tw, stock, syms) if path == OUT_ST else adapt(tw, stock)
+        out = adapt_st(tw, stock, syms) if path == OUT_ST else adapt(tw, stock, syms)
         text = json.dumps(out, indent=1) + "\n"
         if args.check:
             ok = path.exists() and path.read_text(encoding="utf-8") == text

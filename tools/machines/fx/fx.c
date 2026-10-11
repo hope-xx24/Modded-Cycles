@@ -1,5 +1,5 @@
 /*
- * FX : algorithmes de delay et de reverb au choix sur le Model:Cycles (MAIN OS 1.13), notes/44.
+ * FX : algorithmes de delay et de reverb au choix sur le Model:Cycles (MAIN OS 1.13), notes/56.
  *
  * L'étage de sortie de l'OS (0x400567ba) appelle le delay puis la reverb, une fois par bloc de 32 trames à 48 kHz :
  *     delay (out, in, params)   0x40057488   out 0x8000ba90, in 0x8000b990, params = état + 428 (Time, Fdbk : mots 8.8)
@@ -423,7 +423,7 @@ void fx_plate(s32 *out, const s32 *in, const s16 *prm)
 		return;
 	}
 	/* Size 0..127 -> gain de la boucle 0..0,97 (Clouds : 0,35..0,98) et diffusion de la boucle 0,35..0,7 (Clouds :
-	 * 0,7), réglés sur la décroissance de la reverb d'origine (notes/44 §5 : 130 dB/s à 0, 48 à 42, 29 à 64, 14 à
+	 * 0,7), réglés sur la décroissance de la reverb d'origine (notes/56 §5 : 130 dB/s à 0, 48 à 42, 29 à 64, 14 à
 	 * 100, 3 à 127) ; Tone 0..127 -> passe-bas de la boucle 0,06..0,6 (à 64)..0,97 (Clouds : 0,6..0,97) */
 	if (size < 0)
 		size = 0;
@@ -483,7 +483,7 @@ void fx_plate(s32 *out, const s32 *in, const s16 *prm)
 		wr = acc;
 
 		/* 24 -> 48 kHz (demi-bande, 2 échantillons de retard) ; sortie = wet de Clouds = 16 x valeur, de Q27 à Q31 :
-		 * << 8 (le niveau de la reverb d'origine sous le même bruit, à 1 dB près, notes/44 §5) */
+		 * << 8 (le niveau de la reverb d'origine sous le même bruit, à 1 dB près, notes/56 §5) */
 		for (n = 0; n < 2; n++) {
 			s32 *h = p->up[n], v = n ? wr : wl, e, o;
 

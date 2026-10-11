@@ -1,4 +1,4 @@
-/* Crochet de démarrage de FX (notes/44 §8), assemblé par tools/gen_fx.py juste après l'image, là où finit le tweak
+/* Crochet de démarrage de FX (notes/56 §8), assemblé par tools/gen_fx.py juste après l'image, là où finit le tweak
  * précédent, et exécuté sur place, une fois : appelé par le jsr de 0x40000530, à la place du crochet précédent (celui
  * de MACRO, sinon boot_extra_hook de Model-TG), où l'on finit (FX_PREV). Il recopie le code de FX, qui le suit dans
  * l'image, vers FX_DST (0x46750000, dans le dernier Mo de la zone de Model-TG) : ce qui suit l'image est remis à zéro
